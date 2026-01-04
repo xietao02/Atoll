@@ -13,6 +13,7 @@ struct ShelfView: View {
     @StateObject var tvm = ShelfStateViewModel.shared
     @StateObject var selection = ShelfSelectionModel.shared
     @StateObject private var quickLookService = QuickLookService()
+    @State private var keyMonitor: Any?
     private let spacing: CGFloat = 8
 
     var body: some View {
@@ -28,6 +29,12 @@ struct ShelfView: View {
         // Bind Quick Look to shelf selection
         .onChange(of: selection.selectedIDs) {
             updateQuickLookSelection()
+        }
+        .onAppear {
+            startKeyMonitor()
+        }
+        .onDisappear {
+            stopKeyMonitor()
         }
         .quickLookPresenter(using: quickLookService)
     }
@@ -74,7 +81,7 @@ struct ShelfView: View {
                 transaction.animation = vm.animation
             }
             .contentShape(Rectangle())
-            .onTapGesture { selection.clear() }
+            .onTapGesture(count: 2) { selection.clear() }
     }
 
     var content: some View {
@@ -112,4 +119,32 @@ struct ShelfView: View {
             ShelfStateViewModel.shared.cleanupInvalidItems()
         }
     }
+
+    private func startKeyMonitor() {
+        guard keyMonitor == nil else { return }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard event.modifierFlags.contains(.command) else { return event }
+            let isSelectAll = event.keyCode == 0
+            if isSelectAll {
+                selection.selectAll(in: tvm.items)
+                return nil
+            }
+            guard selection.hasSelection else { return event }
+            let isDelete = event.keyCode == 51 || event.keyCode == 117
+            guard isDelete else { return event }
+            let selected = selection.selectedItems(in: tvm.items)
+            for item in selected {
+                ShelfActionService.remove(item)
+            }
+            return nil
+        }
+    }
+
+    private func stopKeyMonitor() {
+        if let keyMonitor {
+            NSEvent.removeMonitor(keyMonitor)
+            self.keyMonitor = nil
+        }
+    }
+
 }
